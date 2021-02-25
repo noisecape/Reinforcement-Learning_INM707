@@ -1,5 +1,6 @@
 import numpy as np
 from Agent import Agent
+from Enemy import Enemy
 import enum
 
 
@@ -33,6 +34,12 @@ class Environment:
         :param n_bombs : The number of bombs in the game. Default = 10
         """
         self.dimension = N
+        self.n_enemies = n_enemies
+        self.n_gold = n_gold
+        self.n_bombs = n_bombs
+
+
+
         self.board = self.init_board()
         self.agent = self.init_agent()
         self.flag_location = self.generate_flag()
@@ -86,7 +93,8 @@ class Environment:
         enemies_locations = []
         for _ in range(n_enemies):
             x, y = self.generate_envir_resource()
-            enemies_locations.append((x, y))
+            enemy = Enemy((x, y))
+            enemies_locations.append(enemy)
             self.board[x, y] = EnvironmentUtils.ENEMY
         return enemies_locations
 
@@ -139,11 +147,30 @@ class Environment:
                           4: 'B',
                           5: 'F',
                           6: 'G'}
-
+        print('Number of active bombs: {}'.format(self.n_bombs))
+        print('Number of enemies: {}'.format(self.n_enemies))
+        print('Number of gold resourses to mine: {}'.format(self.n_gold))
         for row in range(self.dimension):
             for column in range(self.dimension):
                 print(display_helper[self.board[row, column]], end=' ')
             print()
+
+    def reset(self):
+        self.board = self.init_board()
+        self.agent = self.init_agent()
+        self.flag_location = self.generate_flag()
+        self.enemies = self.generate_enemies(self.n_enemies)
+        self.gold = self.generate_gold(self.n_gold)
+        self.bombs = self.generate_bombs(self.n_bombs)
+
+    def step(self):
+        """
+        This function defines the loop of the game and it's called at every time steps.
+        :return:
+        """
+        for enemy in self.enemies:
+            new_x, new_y = enemy.move()
+            # TO DO
 
 
 env = Environment()
