@@ -3,6 +3,16 @@ from Agent import Agent
 import enum
 
 
+class GameDifficulty(enum.Enum):
+    """
+    This class specifies some parameters of the game.
+    """
+    DIFFICULTY_EASY = 0
+    DIFFICULTY_MEDIUM = 1
+    DIFFICULTY_HARD = 2
+    DIFFICULTY_EXTREME = 3
+
+
 class EnvironmentUtils(enum.IntEnum):
     """
     This class represents a series of utils used to display
@@ -13,7 +23,8 @@ class EnvironmentUtils(enum.IntEnum):
     AGENT = 2
     CAR = 3
     TRUCK = 4
-    SAFE = 5
+    ROAD = 5
+    SAFE = 6
 
 
 class Environment:
@@ -23,7 +34,18 @@ class Environment:
     handles the actions taken by the agent, updating the board accordingly.
     """
 
-    def __init__(self, N=20, difficulty=1):
+    # These variables are used to randomly generate road sections.
+    # The first element of the dictionary is a list
+    # which represents the probability to generate or not a road section.
+    # At index '0' there is the probability of generating a road section. At index 1 there is the
+    # probability of not creating it.
+    # The second element represents how wide the road section is. The harder the wider.
+    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.6, 0.4]}
+    ROADS_MEDIUM = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.6, 0.4]}
+    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 3, 'traffic': [0.65, 0.35]}
+    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 4, 'traffic': [0.65, 0.35]}
+
+    def __init__(self, N=20, difficulty=GameDifficulty.DIFFICULTY_EASY):
         """
         Inits the environment of the board.
         :param N : The dimension of the board. It should be a square board of (N,N). Default = 20
@@ -31,10 +53,16 @@ class Environment:
         the more the number of roads to cross and cars to avoid on the grid world.
         """
         self.dimension = N
-
-        self.board = self.init_board()
-        self.agent = self.init_agent()
         self.difficulty = difficulty
+        # generate board with walls
+        self.board = self.init_board()
+        # generate road sections
+        self.generate_road_sections()
+        # generate safe section
+        self.generate_safe_section()
+        # generate the agent
+        self.agent = self.init_agent()
+
         self.display_board()
 
     def init_agent(self):
@@ -42,7 +70,7 @@ class Environment:
         This function first search for a valid location for the agent, then instantiates the agent
         with the valid location. Note that the agent at the start of the game can only spawn in
         one of the possible columns of the the lower row of the board (excluding the walls).
-        :return agent: The agent of the environment:
+        :return agent: The agent of the environment.
         """
         agent_location = (self.dimension-2, np.random.randint(1, self.dimension-1))
         agent = Agent(agent_location)
@@ -52,8 +80,7 @@ class Environment:
     def init_board(self):
         """
         This function set up the walls for the board.
-        :return board: The board of dimension (N,N):
-
+        :return board: The board of dimension (N,N) with walls.
         """
         board = np.zeros((self.dimension, self.dimension))
         board[:1, :] = EnvironmentUtils.WALL
@@ -62,11 +89,48 @@ class Environment:
         board[:, -1] = EnvironmentUtils.WALL
         return board
 
-    def generate_roads(self):
+    def generate_safe_section(self):
+        self.board[1:2, 1:-1] = EnvironmentUtils.SAFE
+
+    def generate_road_sections(self):
         """
         Generates the roads on the grid and updates the board accordingly.
+        Depending on the difficulty
         """
-        pass
+        if self.difficulty == GameDifficulty.DIFFICULTY_EASY:
+
+            self.build_road_section(Environment.ROADS_EASY)
+
+        elif self.difficulty == GameDifficulty.DIFFICULTY_MEDIUM:
+
+            self.build_road_section(Environment.ROADS_MEDIUM)
+
+        elif self.difficulty == GameDifficulty.DIFFICULTY_HARD:
+
+            self.build_road_section(Environment.ROADS_HARD)
+
+        else:
+
+            self.build_road_section(Environment.ROADS_EXTREME)
+
+
+    def build_road_section(self, difficulty_settings):
+        for k, v in enumerate(difficulty_settings):
+            print(k,v)
+        prob_generate_road = difficulty_settings['prob_road']
+        road_width = difficulty_settings['width']
+        # the start index at which the road can be built.
+        # it start at dimension-3 because the dim-1 row is reserved for the wall ('X'),
+        # the dimension-2 row is reserved for the spawning of the frog.
+        board_index = self.dimension-3
+        while board_index > 2:
+            if board_index % 2 == 0 and self.board[board_index+1, 1] != EnvironmentUtils.ROAD:
+                prob_index = np.argmax(np.random.multinomial(1, prob_generate_road))
+                if prob_index == 0:  # generate road section
+                    for _ in range(road_width):
+                        self.board[board_index, 1:-1] = EnvironmentUtils.ROAD
+                        board_index -= 1
+            board_index -= 1
 
     def generate_envir_resource(self):
         """
@@ -87,11 +151,11 @@ class Environment:
         display_helper = {0: '.',
                           1: 'X',
                           2: 'A',
-                          3: 'E',
-                          4: 'B',
-                          5: 'F',
-                          6: 'G'}
-        print('Number of roads to cross: {}'.format(self.n_bombs))
+                          3: 'C',
+                          4: 'T',
+                          5: 'R',
+                          6: 'S'}
+        print('Difficulty: {}'.format(self.difficulty))
         print('Lives: {}'.format(self.agent.lives))
         for row in range(self.dimension):
             for column in range(self.dimension):
@@ -113,4 +177,4 @@ class Environment:
             # TO DO
 
 
-env = Environment()
+env = Environment(25, difficulty=GameDifficulty.DIFFICULTY_EXTREME)
