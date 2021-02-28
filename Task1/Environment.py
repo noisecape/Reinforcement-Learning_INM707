@@ -7,10 +7,10 @@ class GameDifficulty(enum.Enum):
     """
     This class specifies some parameters of the game.
     """
-    DIFFICULTY_EASY = 0
-    DIFFICULTY_MEDIUM = 1
-    DIFFICULTY_HARD = 2
-    DIFFICULTY_EXTREME = 3
+    EASY = 0
+    MEDIUM = 1
+    HARD = 2
+    EXTREME = 3
 
 
 class EnvironmentUtils(enum.IntEnum):
@@ -45,7 +45,7 @@ class Environment:
     ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 3, 'traffic': [0.65, 0.35]}
     ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 4, 'traffic': [0.65, 0.35]}
 
-    def __init__(self, N=20, difficulty=GameDifficulty.DIFFICULTY_EASY):
+    def __init__(self, N=20, difficulty=GameDifficulty.EASY):
         """
         Inits the environment of the board.
         :param N : The dimension of the board. It should be a square board of (N,N). Default = 20
@@ -97,15 +97,15 @@ class Environment:
         Generates the roads on the grid and updates the board accordingly.
         Depending on the difficulty
         """
-        if self.difficulty == GameDifficulty.DIFFICULTY_EASY:
+        if self.difficulty == GameDifficulty.EASY:
 
             self.build_road_section(Environment.ROADS_EASY)
 
-        elif self.difficulty == GameDifficulty.DIFFICULTY_MEDIUM:
+        elif self.difficulty == GameDifficulty.MEDIUM:
 
             self.build_road_section(Environment.ROADS_MEDIUM)
 
-        elif self.difficulty == GameDifficulty.DIFFICULTY_HARD:
+        elif self.difficulty == GameDifficulty.HARD:
 
             self.build_road_section(Environment.ROADS_HARD)
 
@@ -113,10 +113,7 @@ class Environment:
 
             self.build_road_section(Environment.ROADS_EXTREME)
 
-
     def build_road_section(self, difficulty_settings):
-        for k, v in enumerate(difficulty_settings):
-            print(k,v)
         prob_generate_road = difficulty_settings['prob_road']
         road_width = difficulty_settings['width']
         # the start index at which the road can be built.
@@ -155,7 +152,8 @@ class Environment:
                           4: 'T',
                           5: 'R',
                           6: 'S'}
-        print('Difficulty: {}'.format(self.difficulty))
+
+        print('Difficulty: {}'.format(self.difficulty.name))
         print('Lives: {}'.format(self.agent.lives))
         for row in range(self.dimension):
             for column in range(self.dimension):
@@ -177,4 +175,4 @@ class Environment:
             # TO DO
 
 
-env = Environment(25, difficulty=GameDifficulty.DIFFICULTY_EXTREME)
+env = Environment(25, difficulty=GameDifficulty.EXTREME)
