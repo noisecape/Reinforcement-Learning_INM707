@@ -23,19 +23,18 @@ class Environment:
     handles the actions taken by the agent, updating the board accordingly.
     """
 
-    def __init__(self, N=20):
+    def __init__(self, N=20, difficulty=1):
         """
         Inits the environment of the board.
         :param N : The dimension of the board. It should be a square board of (N,N). Default = 20
-        :param n_enemies : The number of enemies in the game. Default = 10
-        :param n_gold : The number of gold resources in the game. Default = 15
-        :param n_bombs : The number of bombs in the game. Default = 10
+        :param difficulty: The diffuculty of the game. It can have a value betwen 1 to 3. The higher the difficulty,
+        the more the number of roads to cross and cars to avoid on the grid world.
         """
         self.dimension = N
 
         self.board = self.init_board()
         self.agent = self.init_agent()
-        self.flag_location = self.generate_flag()
+        self.difficulty = difficulty
         self.display_board()
 
     def init_agent(self):
@@ -65,9 +64,7 @@ class Environment:
 
     def generate_roads(self):
         """
-        Generates the enemies locations and updates the board accordingly.
-        :param n_enemies : The number of enemies to generate.
-        :return enemies_locations : The list of all the enemies locations
+        Generates the roads on the grid and updates the board accordingly.
         """
         pass
 
@@ -94,9 +91,8 @@ class Environment:
                           4: 'B',
                           5: 'F',
                           6: 'G'}
-        print('Number of active bombs: {}'.format(self.n_bombs))
-        print('Number of enemies: {}'.format(self.n_enemies))
-        print('Number of gold resourses to mine: {}'.format(self.n_gold))
+        print('Number of roads to cross: {}'.format(self.n_bombs))
+        print('Lives: {}'.format(self.agent.lives))
         for row in range(self.dimension):
             for column in range(self.dimension):
                 print(display_helper[self.board[row, column]], end=' ')
