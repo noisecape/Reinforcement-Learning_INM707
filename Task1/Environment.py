@@ -1,6 +1,5 @@
 import numpy as np
 from Agent import Agent
-from Enemy import Enemy
 import enum
 
 
@@ -12,10 +11,9 @@ class EnvironmentUtils(enum.IntEnum):
     FREE_LOCATION = 0
     WALL = 1
     AGENT = 2
-    ENEMY = 3
-    BOMB = 4
-    FLAG = 5
-    GOLD = 6
+    CAR = 3
+    TRUCK = 4
+    SAFE = 5
 
 
 class Environment:
@@ -25,7 +23,7 @@ class Environment:
     handles the actions taken by the agent, updating the board accordingly.
     """
 
-    def __init__(self, N=20, n_enemies=10, n_gold=15, n_bombs=10):
+    def __init__(self, N=20):
         """
         Inits the environment of the board.
         :param N : The dimension of the board. It should be a square board of (N,N). Default = 20
@@ -34,18 +32,10 @@ class Environment:
         :param n_bombs : The number of bombs in the game. Default = 10
         """
         self.dimension = N
-        self.n_enemies = n_enemies
-        self.n_gold = n_gold
-        self.n_bombs = n_bombs
-
-
 
         self.board = self.init_board()
         self.agent = self.init_agent()
         self.flag_location = self.generate_flag()
-        self.enemies = self.generate_enemies(n_enemies)
-        self.gold = self.generate_gold(n_gold)
-        self.bombs = self.generate_bombs(n_bombs)
         self.display_board()
 
     def init_agent(self):
@@ -73,56 +63,13 @@ class Environment:
         board[:, -1] = EnvironmentUtils.WALL
         return board
 
-    def generate_flag(self):
-        """
-        This function generate a valid location for the flag. It then updates the board accordingly.
-        The flag at the start of the game can only spawn in one of the possible columns of the the upper
-        row of the board (excluding the walls).
-        :return flag_location : The x,y coordinates of the flag.:
-        """
-        flag_location = (1, np.random.randint(1, self.dimension-1))
-        self.board[flag_location[0], flag_location[1]] = EnvironmentUtils.FLAG
-        return flag_location
-
-    def generate_enemies(self, n_enemies):
+    def generate_roads(self):
         """
         Generates the enemies locations and updates the board accordingly.
         :param n_enemies : The number of enemies to generate.
         :return enemies_locations : The list of all the enemies locations
         """
-        enemies_locations = []
-        for _ in range(n_enemies):
-            x, y = self.generate_envir_resource()
-            enemy = Enemy((x, y))
-            enemies_locations.append(enemy)
-            self.board[x, y] = EnvironmentUtils.ENEMY
-        return enemies_locations
-
-    def generate_gold(self, n_gold):
-        """
-        Generates the gold locations and updates the board accordingly.
-        :param n_gold: The number of gold resources to generate.
-        :return gold_locations: The list of all the gold resources locations.
-        """
-        gold_locations = []
-        for _ in range(n_gold):
-            x, y = self.generate_envir_resource()
-            gold_locations.append((x, y))
-            self.board[x, y] = EnvironmentUtils.GOLD
-        return gold_locations
-
-    def generate_bombs(self, n_bombs):
-        """
-        Generates the bombs locations and updates the board accordingly.
-        :param n_bombs: The number of bombs to generate.
-        :return n_bombs: The list of all the bombs locations.
-        """
-        bombs_locations = []
-        for _ in range(n_bombs):
-            x, y = self.generate_envir_resource()
-            bombs_locations.append((x, y))
-            self.board[x, y] = EnvironmentUtils.BOMB
-        return bombs_locations
+        pass
 
     def generate_envir_resource(self):
         """
@@ -158,10 +105,7 @@ class Environment:
     def reset(self):
         self.board = self.init_board()
         self.agent = self.init_agent()
-        self.flag_location = self.generate_flag()
-        self.enemies = self.generate_enemies(self.n_enemies)
-        self.gold = self.generate_gold(self.n_gold)
-        self.bombs = self.generate_bombs(self.n_bombs)
+
 
     def step(self):
         """
