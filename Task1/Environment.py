@@ -1,5 +1,6 @@
 import numpy as np
 from Agent import Agent
+from Car import Car
 import enum
 
 
@@ -13,6 +14,13 @@ class GameDifficulty(enum.Enum):
     EXTREME = 3
 
 
+class Colors:
+    AGENT_BLUE = '\033[94m'
+    SAFE_GREEN = '\033[92m'
+    CAR_RED = '\033[91m'
+    ENDC = '\033[0m'
+
+
 class EnvironmentUtils(enum.IntEnum):
     """
     This class represents a series of utils used to display
@@ -22,9 +30,8 @@ class EnvironmentUtils(enum.IntEnum):
     WALL = 1
     AGENT = 2
     CAR = 3
-    TRUCK = 4
-    ROAD = 5
-    SAFE = 6
+    ROAD = 4
+    SAFE = 5
 
 
 class Environment:
@@ -40,8 +47,8 @@ class Environment:
     # At index '0' there is the probability of generating a road section. At index 1 there is the
     # probability of not creating it.
     # The second element represents how wide the road section is. The harder the wider.
-    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.6, 0.4]}
-    ROADS_MEDIUM = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.6, 0.4]}
+    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.7, 0.3]}
+    ROADS_MEDIUM = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.7, 0.3]}
     ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 3, 'traffic': [0.65, 0.35]}
     ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 4, 'traffic': [0.65, 0.35]}
 
@@ -62,8 +69,42 @@ class Environment:
         self.generate_safe_section()
         # generate the agent
         self.agent = self.init_agent()
+        # generate cars
+        self.cars = self.generate_cars()
 
         self.display_board()
+
+    def generate_cars(self):
+        cars = [] # the list of all the cars in the board
+        possible_locations = [] # list of all the possible locations where cars can be generated
+        for row in range(self.dimension):
+            if self.board[row][1] == EnvironmentUtils.ROAD:
+                possible_locations.append((row, 1))
+        for spawn_row, spawn_column in possible_locations:
+            gen_car_prob = self.get_traffic_probability()
+            for column in range(1, self.dimension-1): # iterate through the columns and randomly generate cars
+                prob_index = np.argmax(np.random.multinomial(1, gen_car_prob))
+                if prob_index == 1: # generate car
+                    car = Car((spawn_row, column))
+                    cars.append(car)
+                    self.board[spawn_row][column] = EnvironmentUtils.CAR
+
+    def get_traffic_probability(self):
+        if self.difficulty == GameDifficulty.EASY:
+
+            return Environment.ROADS_EASY['traffic']
+
+        elif self.difficulty == GameDifficulty.MEDIUM:
+
+            return Environment.ROADS_MEDIUM['traffic']
+
+        elif self.difficulty == GameDifficulty.HARD:
+
+            return Environment.ROADS_HARD['traffic']
+
+        else:
+
+            return Environment.ROADS_EXTREME['traffic']
 
     def init_agent(self):
         """
@@ -117,7 +158,7 @@ class Environment:
         prob_generate_road = difficulty_settings['prob_road']
         road_width = difficulty_settings['width']
         # the start index at which the road can be built.
-        # it start at dimension-3 because the dim-1 row is reserved for the wall ('X'),
+        # it starts at dimension-3 because the dim-1 row is reserved for the wall ('X'),
         # the dimension-2 row is reserved for the spawning of the frog.
         board_index = self.dimension-3
         while board_index > 2:
@@ -145,19 +186,18 @@ class Environment:
         """
         This function displays the board.
         """
-        display_helper = {0: '.',
-                          1: 'X',
-                          2: 'A',
-                          3: 'C',
-                          4: 'T',
-                          5: 'R',
-                          6: 'S'}
+        display_helper = {0: ('.', Colors.ENDC),
+                          1: ('X', Colors.ENDC),
+                          2: ('A', Colors.AGENT_BLUE),
+                          3: ('C', Colors.CAR_RED),
+                          4: ('R', Colors.ENDC),
+                          5: ('S', Colors.SAFE_GREEN)}
 
         print('Difficulty: {}'.format(self.difficulty.name))
         print('Lives: {}'.format(self.agent.lives))
         for row in range(self.dimension):
             for column in range(self.dimension):
-                print(display_helper[self.board[row, column]], end=' ')
+                print(display_helper[self.board[row, column]][1] + display_helper[self.board[row, column]][0], end=' ')
             print()
 
     def reset(self):
@@ -175,4 +215,4 @@ class Environment:
             # TO DO
 
 
-env = Environment(25, difficulty=GameDifficulty.EXTREME)
+env = Environment(25, difficulty=GameDifficulty.EASY)
