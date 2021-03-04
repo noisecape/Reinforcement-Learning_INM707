@@ -2,6 +2,19 @@ import numpy as np
 from Agent import Agent
 from Car import Car
 import enum
+from collections import namedtuple
+from E_Greedy import E_Greedy
+
+
+class Rewards(enum.IntEnum):
+    """
+    This class defines the amount of reward the agent can receive
+    depending on the type of location.
+    """
+    FREE = -1
+    WALL = -5
+    CAR = -100
+    SAFE = 100
 
 
 class GameDifficulty(enum.Enum):
@@ -47,12 +60,21 @@ class Environment:
     # At index '0' there is the probability of generating a road section. At index 1 there is the
     # probability of not creating it.
     # The second element represents how wide the road section is. The harder the wider.
-    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.7, 0.3]}
-    ROADS_MEDIUM = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.7, 0.3]}
-    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 3, 'traffic': [0.65, 0.35]}
-    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 4, 'traffic': [0.65, 0.35]}
+    ROADS_EASY = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
+    ROADS_MEDIUM = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
+    ROADS_HARD = {'prob_road': [0.5, 0.5], 'width': 3, 'traffic': [0.8, 0.2]}
+    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 4, 'traffic': [0.8, 0.2]}
 
-    def __init__(self, N=20, difficulty=GameDifficulty.EASY):
+    # Defines the possible actions
+    Action = namedtuple('Action', ['id', 'name', 'idx_i', 'idx_j'])
+    up = Action(0, 'up', -1, 0)
+    left = Action(1, 'left', 0, -1)
+    right = Action(2, 'right', 0, 1)
+    idx_to_action = {}
+    for action in [up, left, right]:
+        idx_to_action[action.name] = action
+
+    def __init__(self, policy, N=20, difficulty=GameDifficulty.EASY):
         """
         Inits the environment of the board.
         :param N : The dimension of the board. It should be a square board of (N,N). Default = 20
@@ -68,26 +90,44 @@ class Environment:
         # generate safe section
         self.generate_safe_section()
         # generate the agent
-        self.agent = self.init_agent()
+        self.agent = self.init_agent(policy)
         # generate cars
         self.cars = self.generate_cars()
 
+        # defines the variables for the Q-Learning algorithm. The each state in this case will be
+        # mapped by using the coordinates (row, column) in the board.
+        self.q_values = np.zeros((self.dimension, self.dimension, 3))  # the agent cannot move backward
+        self.reward_matrix = self.init_reward_matrix()
+
         self.display_board()
 
+    def init_reward_matrix(self):
+        reward_matrix = np.ones((self.dimension, self.dimension)) * -1
+        for i in range(self.dimension):
+            for j in range(self.dimension):
+                if self.board[i][j] == EnvironmentUtils.WALL:
+                    reward_matrix[i][j] = Rewards.WALL
+                elif self.board[i][j] == EnvironmentUtils.CAR:
+                    reward_matrix[i][j] = Rewards.CAR
+                elif self.board[i][j] == EnvironmentUtils.SAFE:
+                    reward_matrix[i][j] = Rewards.SAFE
+        return reward_matrix
+
     def generate_cars(self):
-        cars = [] # the list of all the cars in the board
-        possible_locations = [] # list of all the possible locations where cars can be generated
+        cars = []  # the list of all the cars in the board
+        possible_locations = []  # list of all the possible locations where cars can be generated
         for row in range(self.dimension):
             if self.board[row][1] == EnvironmentUtils.ROAD:
                 possible_locations.append((row, 1))
         for spawn_row, spawn_column in possible_locations:
             gen_car_prob = self.get_traffic_probability()
-            for column in range(1, self.dimension-1): # iterate through the columns and randomly generate cars
+            for column in range(1, self.dimension-1):  # iterate through the columns and randomly generate cars
                 prob_index = np.argmax(np.random.multinomial(1, gen_car_prob))
-                if prob_index == 1: # generate car
+                if prob_index == 1:  # generate car
                     car = Car((spawn_row, column))
                     cars.append(car)
                     self.board[spawn_row][column] = EnvironmentUtils.CAR
+        return cars
 
     def get_traffic_probability(self):
         if self.difficulty == GameDifficulty.EASY:
@@ -106,7 +146,7 @@ class Environment:
 
             return Environment.ROADS_EXTREME['traffic']
 
-    def init_agent(self):
+    def init_agent(self, policy):
         """
         This function first search for a valid location for the agent, then instantiates the agent
         with the valid location. Note that the agent at the start of the game can only spawn in
@@ -114,7 +154,7 @@ class Environment:
         :return agent: The agent of the environment.
         """
         agent_location = (self.dimension-2, np.random.randint(1, self.dimension-1))
-        agent = Agent(agent_location)
+        agent = Agent(agent_location, policy)
         self.board[agent_location[0], agent_location[1]] = EnvironmentUtils.AGENT
         return agent
 
@@ -155,6 +195,7 @@ class Environment:
             self.build_road_section(Environment.ROADS_EXTREME)
 
     def build_road_section(self, difficulty_settings):
+        np.random.seed(47)  # to replicate the same experiment across several epochs
         prob_generate_road = difficulty_settings['prob_road']
         road_width = difficulty_settings['width']
         # the start index at which the road can be built.
@@ -194,7 +235,6 @@ class Environment:
                           5: ('S', Colors.SAFE_GREEN)}
 
         print('Difficulty: {}'.format(self.difficulty.name))
-        print('Lives: {}'.format(self.agent.lives))
         for row in range(self.dimension):
             for column in range(self.dimension):
                 print(display_helper[self.board[row, column]][1] + display_helper[self.board[row, column]][0], end=' ')
@@ -210,9 +250,28 @@ class Environment:
         This function defines the loop of the game and it's called at every time steps.
         :return:
         """
-        for enemy in self.enemies:
-            new_x, new_y = enemy.move()
-            # TO DO
+        for car in self.cars:
+            new_x, new_y = car.drive()
+            if self.board[new_x][new_y] == EnvironmentUtils.WALL: # if the car bumbs into the wall, respown it
+                resp_x, resp_y = car.respawn_car()
+                self.board[resp_x, resp_y] = EnvironmentUtils.CAR
+            else:
+                self.board[new_x][new_y] = EnvironmentUtils.CAR
+            # now that the car took one step, update the reward matrix
+
+            # check if there's a car behind the current one.
+            # If that's the case, don't update the reward matrix in the previous location
+            if self.reward_matrix[new_x][new_y-1] != Rewards.CAR:
+                self.reward_matrix[new_x][new_y-1] = Rewards.FREE
+            self.reward_matrix[new_x][new_y] = Rewards.CAR
+
+        # the agent take an action randomly.
+        self.agent.jump(self.q_values)
+        # check if is a legit move
+        # update board and reward matrix
 
 
-env = Environment(25, difficulty=GameDifficulty.EASY)
+policy = E_Greedy(0.95)
+env = Environment(policy, 12, difficulty=GameDifficulty.EASY)
+env.step()
+print(env.reward_matrix)
