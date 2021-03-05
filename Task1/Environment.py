@@ -72,16 +72,16 @@ class Environment:
     right = Action(2, 'right', 0, 1)
     idx_to_action = {}
     for action in [up, left, right]:
-        idx_to_action[action.name] = action
+        idx_to_action[action.id] = action
 
-    def __init__(self, policy, lr, gamma, N=20, difficulty=GameDifficulty.EASY):
+    def __init__(self, dimension=20, difficulty=GameDifficulty.EASY):
         """
         Inits the environment of the board.
-        :param N : The dimension of the board. It should be a square board of (N,N). Default = 20
+        :param dimension : The dimension of the board. It should be a square board of (N,N). Default = 20
         :param difficulty: The diffuculty of the game. It can have a value betwen 1 to 3. The higher the difficulty,
         the more the number of roads to cross and cars to avoid on the grid world.
         """
-        self.dimension = N
+        self.dimension = dimension
         self.difficulty = difficulty
         self.reward = 0
         self.lr = lr
@@ -94,7 +94,7 @@ class Environment:
         # generate safe section
         self.generate_safe_section()
         # generate the agent
-        self.agent = self.init_agent(policy)
+        self.agent = self.init_agent()
         # generate cars
         self.cars = self.generate_cars()
 
@@ -152,7 +152,7 @@ class Environment:
 
             return Environment.ROADS_EXTREME['traffic']
 
-    def init_agent(self, policy):
+    def init_agent(self):
         """
         This function first search for a valid location for the agent, then instantiates the agent
         with the valid location. Note that the agent at the start of the game can only spawn in
@@ -160,7 +160,7 @@ class Environment:
         :return agent: The agent of the environment.
         """
         agent_location = (self.dimension - 2, np.random.randint(1, self.dimension - 1))
-        agent = Agent(agent_location, policy)
+        agent = Agent(agent_location)
         self.board[agent_location[0], agent_location[1]] = EnvironmentUtils.AGENT
         return agent
 
@@ -247,10 +247,21 @@ class Environment:
             print()
 
     def reset(self):
-        # called wheneven a new episode starts
-        # set up all the environment
+        self.is_gameover = False
+        # generate board with walls
         self.board = self.init_board()
+        # generate road sections
+        self.generate_road_sections()
+        # generate safe section
+        self.generate_safe_section()
+        # generate the agent
         self.agent = self.init_agent()
+        # generate cars
+        self.cars = self.generate_cars()
+
+        # defines the variables for the Q-Learning algorithm. The each state in this case will be
+        # mapped by using the coordinates (row, column) in the board.
+        self.reward_matrix = self.init_reward_matrix()
 
     def is_road_section(self, prev_x, prev_y):
         """
@@ -265,11 +276,13 @@ class Environment:
             return True
         return False
 
-    def step(self):
+    def step(self, idx_action):
         """
-        This function defines the loop of the game and it's called at every time steps.
-        :return:
+        This function moves the agent in the next state and updates the board.
+        :param action_idx: the action the agent has to take.
+        :return reward: the immediate reward of the step.
         """
+        action = Environment.idx_to_action[idx_action]
         self.cars.reverse()
         for car in self.cars:
             prev_x, prev_y = car.current_location
@@ -288,10 +301,8 @@ class Environment:
             # check if there's a car behind the current one.
             # If that's the case, don't update the reward matrix in the previous location
 
-        # the agent take an action according to the e-greedy policy.
         prev_x, prev_y = self.agent.current_location
-        new_location, action = self.agent.jump(self.q_values)
-        new_x, new_y = new_location[0], new_location[1]
+        new_x, new_y = self.agent.jump(action)
         # update the reward based on the reward matrix values
         self.reward += self.reward_matrix[new_x][new_y]
         # update the agent location within the board
@@ -323,19 +334,33 @@ class Environment:
                 self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
             self.board[new_x][new_y] = EnvironmentUtils.AGENT
 
-        prev_q_val = self.q_values[prev_x, prev_y, action.id]
-        # compute temporal difference value
-        t_d_value = self.reward + (self.gamma * (np.max(self.q_values[new_x, new_y])) - prev_q_val)
-        self.q_values = self.q_values + (self.lr * t_d_value)
         return self.reward
 
 
-policy = E_Greedy(0.95)
-learning_rate = 0.9  # learning rate
-discount_factor = 0.9  # discount factor
-env = Environment(policy, learning_rate, discount_factor, 12, difficulty=GameDifficulty.EASY)
+policy = E_Greedy(0.9)
+lr = 0.9  # learning rate
+gamma = 0.9  # discount factor
+env = Environment(dimension=10, difficulty=GameDifficulty.EASY)
 
-for episode in range(1000):
+for episode in range(10):
+    reward = 0
     while not env.is_gameover:
-        reward = env.step()
-        print(reward)
+        # choose action
+        idx_action = policy.take_action(env.agent.current_location, env.q_values)
+        # store previous coordinates of the agent
+        prev_x, prev_y = env.agent.current_location
+        # transition to next state and get immediate reward
+        reward = env.step(idx_action)
+        # get previous q-value
+        prev_q_value = env.q_values[prev_x, prev_y, idx_action]
+        # store updated agent location
+        agent_x, agent_y = env.agent.current_location
+        # compute temporal error difference
+        t_d_error = reward + (gamma * np.max(env.q_values[agent_x, agent_y])) - prev_q_value
+        # update Q-value of the previous state-action pair.
+        updated_q_value = prev_q_value + (lr * t_d_error)
+        env.q_values[prev_x, prev_y, idx_action] = updated_q_value
+    env.reset()
+    print(reward)
+
+
