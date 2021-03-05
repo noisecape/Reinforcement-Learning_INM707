@@ -74,7 +74,7 @@ class Environment:
     for action in [up, left, right]:
         idx_to_action[action.name] = action
 
-    def __init__(self, policy, N=20, difficulty=GameDifficulty.EASY):
+    def __init__(self, policy, lr, gamma, N=20, difficulty=GameDifficulty.EASY):
         """
         Inits the environment of the board.
         :param N : The dimension of the board. It should be a square board of (N,N). Default = 20
@@ -83,6 +83,10 @@ class Environment:
         """
         self.dimension = N
         self.difficulty = difficulty
+        self.reward = 0
+        self.lr = lr
+        self.gamma = gamma
+        self.is_gameover = False
         # generate board with walls
         self.board = self.init_board()
         # generate road sections
@@ -111,6 +115,8 @@ class Environment:
                     reward_matrix[i][j] = Rewards.CAR
                 elif self.board[i][j] == EnvironmentUtils.SAFE:
                     reward_matrix[i][j] = Rewards.SAFE
+                elif self.board[i][j] == EnvironmentUtils.FREE_LOCATION:
+                    reward_matrix[i][j] = Rewards.FREE
         return reward_matrix
 
     def generate_cars(self):
@@ -121,7 +127,7 @@ class Environment:
                 possible_locations.append((row, 1))
         for spawn_row, spawn_column in possible_locations:
             gen_car_prob = self.get_traffic_probability()
-            for column in range(1, self.dimension-1):  # iterate through the columns and randomly generate cars
+            for column in range(1, self.dimension - 1):  # iterate through the columns and randomly generate cars
                 prob_index = np.argmax(np.random.multinomial(1, gen_car_prob))
                 if prob_index == 1:  # generate car
                     car = Car((spawn_row, column))
@@ -153,7 +159,7 @@ class Environment:
         one of the possible columns of the the lower row of the board (excluding the walls).
         :return agent: The agent of the environment.
         """
-        agent_location = (self.dimension-2, np.random.randint(1, self.dimension-1))
+        agent_location = (self.dimension - 2, np.random.randint(1, self.dimension - 1))
         agent = Agent(agent_location, policy)
         self.board[agent_location[0], agent_location[1]] = EnvironmentUtils.AGENT
         return agent
@@ -201,9 +207,9 @@ class Environment:
         # the start index at which the road can be built.
         # it starts at dimension-3 because the dim-1 row is reserved for the wall ('X'),
         # the dimension-2 row is reserved for the spawning of the frog.
-        board_index = self.dimension-3
+        board_index = self.dimension - 3
         while board_index > 2:
-            if board_index % 2 == 0 and self.board[board_index+1, 1] != EnvironmentUtils.ROAD:
+            if board_index % 2 == 0 and self.board[board_index + 1, 1] != EnvironmentUtils.ROAD:
                 prob_index = np.argmax(np.random.multinomial(1, prob_generate_road))
                 if prob_index == 0:  # generate road section
                     for _ in range(road_width):
@@ -241,37 +247,95 @@ class Environment:
             print()
 
     def reset(self):
+        # called wheneven a new episode starts
+        # set up all the environment
         self.board = self.init_board()
         self.agent = self.init_agent()
 
+    def is_road_section(self, prev_x, prev_y):
+        """
+        This function checks if the previous location the agent moved from is a part of a road section.
+        :return: True if the previous location is part of a road section. Otherwise, False
+        """
+        if self.board[prev_x][prev_y - 1] == EnvironmentUtils.ROAD or \
+                self.board[prev_x][prev_y - 1] == EnvironmentUtils.CAR:
+            return True
+        if self.board[prev_x][prev_y + 1] == EnvironmentUtils.ROAD or \
+                self.board[prev_x][prev_y + 1] == EnvironmentUtils.CAR:
+            return True
+        return False
 
     def step(self):
         """
         This function defines the loop of the game and it's called at every time steps.
         :return:
         """
+        self.cars.reverse()
         for car in self.cars:
+            prev_x, prev_y = car.current_location
             new_x, new_y = car.drive()
-            if self.board[new_x][new_y] == EnvironmentUtils.WALL: # if the car bumbs into the wall, respown it
+            if self.board[new_x][new_y] == EnvironmentUtils.WALL:  # if the car bumbs into the wall, respown it
                 resp_x, resp_y = car.respawn_car()
                 self.board[resp_x, resp_y] = EnvironmentUtils.CAR
+                self.reward_matrix[prev_x][prev_y] = Rewards.FREE
+                self.reward_matrix[resp_x][resp_y] = Rewards.CAR
             else:
                 self.board[new_x][new_y] = EnvironmentUtils.CAR
+                self.reward_matrix[prev_x][prev_y] = Rewards.FREE
+                self.reward_matrix[new_x][new_y] = Rewards.CAR
+            self.board[prev_x][prev_y] = EnvironmentUtils.ROAD
             # now that the car took one step, update the reward matrix
-
             # check if there's a car behind the current one.
             # If that's the case, don't update the reward matrix in the previous location
-            if self.reward_matrix[new_x][new_y-1] != Rewards.CAR:
-                self.reward_matrix[new_x][new_y-1] = Rewards.FREE
-            self.reward_matrix[new_x][new_y] = Rewards.CAR
 
-        # the agent take an action randomly.
-        self.agent.jump(self.q_values)
-        # check if is a legit move
-        # update board and reward matrix
+        # the agent take an action according to the e-greedy policy.
+        prev_x, prev_y = self.agent.current_location
+        new_location, action = self.agent.jump(self.q_values)
+        new_x, new_y = new_location[0], new_location[1]
+        # update the reward based on the reward matrix values
+        self.reward += self.reward_matrix[new_x][new_y]
+        # update the agent location within the board
+        if self.board[new_x][new_y] == EnvironmentUtils.FREE_LOCATION:
+            # make the previous location a FREE_LOCATION
+            self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
+            # update the new location of the agent in the board
+            self.board[new_x][new_y] = EnvironmentUtils.AGENT
+        elif self.board[new_x][new_y] == EnvironmentUtils.CAR:
+            # update only the previous location.
+            # The agent is dead so there's no more 'A' in the board. End of the episode.
+            if self.is_road_section(prev_x, prev_y):
+                self.board[prev_x][prev_y] = EnvironmentUtils.ROAD
+            else:
+                self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
+            self.is_gameover = True
+        elif self.board[new_x][new_y] == EnvironmentUtils.WALL:
+            # restore the previous value
+            self.agent.current_location = prev_x, prev_y
+        elif self.board[prev_x][prev_y] == EnvironmentUtils.SAFE:
+            # update only the previous location
+            self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
+            self.is_gameover = True
+        elif self.board[new_x][new_y] == EnvironmentUtils.ROAD:
+            # update the previous location
+            if self.is_road_section(prev_x, prev_y):
+                self.board[prev_x][prev_y] = EnvironmentUtils.ROAD
+            else:
+                self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
+            self.board[new_x][new_y] = EnvironmentUtils.AGENT
+
+        prev_q_val = self.q_values[prev_x, prev_y, action.id]
+        # compute temporal difference value
+        t_d_value = self.reward + (self.gamma * (np.max(self.q_values[new_x, new_y])) - prev_q_val)
+        self.q_values = self.q_values + (self.lr * t_d_value)
+        return self.reward
 
 
 policy = E_Greedy(0.95)
-env = Environment(policy, 12, difficulty=GameDifficulty.EASY)
-env.step()
-print(env.reward_matrix)
+learning_rate = 0.9  # learning rate
+discount_factor = 0.9  # discount factor
+env = Environment(policy, learning_rate, discount_factor, 12, difficulty=GameDifficulty.EASY)
+
+for episode in range(1000):
+    while not env.is_gameover:
+        reward = env.step()
+        print(reward)
