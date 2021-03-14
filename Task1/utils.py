@@ -1,10 +1,44 @@
-import numpy as np
-from Agent import Agent
-from Car import Car
 import enum
 from collections import namedtuple
-from E_Greedy import E_Greedy
+import numpy as np
 
+class Car:
+
+    def __init__(self, start_location):
+        self.current_location = start_location
+
+    def drive(self):
+        """
+        This function handles the movement of the car. At each time step the car moves
+        from left to right by 1 location. Whenever it enters within a location with a wall,
+        the car will be respawned to the location (row, 1).
+        :return:
+        """
+        self.current_location = self.current_location[0], self.current_location[1]+1
+        return self.current_location
+
+    def respawn_car(self):
+        """
+        This function is used to respawn the car to the location (row, 1)
+        :return:
+        """
+        self.current_location = self.current_location[0], 1
+        return self.current_location
+
+
+class Agent:
+
+    def __init__(self, start_location):
+        self.current_location = start_location
+
+    def jump(self, action):
+        """
+        This function implements the behaviour of the agent within the environment.
+        :param action: the data structure that holds all the values for the pair (s,a).
+        :return current_location: the new updated location of the agent
+        """
+        self.current_location = self.current_location[0] + action.idx_i, self.current_location[1] + action.idx_j
+        return self.current_location
 
 class Rewards(enum.IntEnum):
     """
@@ -74,7 +108,7 @@ class Environment:
     for action in [up, left, right]:
         idx_to_action[action.id] = action
 
-    def __init__(self, dimension=20, difficulty=GameDifficulty.EASY):
+    def __init__(self, lr, gamma, dimension=20, difficulty=GameDifficulty.EASY):
         """
         Inits the environment of the board.
         :param dimension : The dimension of the board. It should be a square board of (N,N). Default = 20
@@ -335,32 +369,3 @@ class Environment:
             self.board[new_x][new_y] = EnvironmentUtils.AGENT
 
         return self.reward
-
-
-policy = E_Greedy(0.9)
-lr = 0.9  # learning rate
-gamma = 0.9  # discount factor
-env = Environment(dimension=10, difficulty=GameDifficulty.EASY)
-
-for episode in range(10):
-    reward = 0
-    while not env.is_gameover:
-        # choose action
-        idx_action = policy.take_action(env.agent.current_location, env.q_values)
-        # store previous coordinates of the agent
-        prev_x, prev_y = env.agent.current_location
-        # transition to next state and get immediate reward
-        reward = env.step(idx_action)
-        # get previous q-value
-        prev_q_value = env.q_values[prev_x, prev_y, idx_action]
-        # store updated agent location
-        agent_x, agent_y = env.agent.current_location
-        # compute temporal error difference
-        t_d_error = reward + (gamma * np.max(env.q_values[agent_x, agent_y])) - prev_q_value
-        # update Q-value of the previous state-action pair.
-        updated_q_value = prev_q_value + (lr * t_d_error)
-        env.q_values[prev_x, prev_y, idx_action] = updated_q_value
-    env.reset()
-    print(reward)
-
-
