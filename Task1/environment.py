@@ -6,9 +6,9 @@ from policy import E_Greedy
 policy = E_Greedy(0.9)
 lr = 0.9  # learning rate
 gamma = 0.9  # discount factor
-env = Environment(lr, gamma, dimension=13, difficulty=GameDifficulty.EASY)
-
-for episode in range(100):
+env = Environment(lr, gamma, dimension=50, difficulty=GameDifficulty.HARD)
+print(env.reward_matrix)
+for episode in range(1000):
     reward = 0
     while not env.is_gameover:
         # choose action

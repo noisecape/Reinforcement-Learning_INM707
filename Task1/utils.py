@@ -45,8 +45,9 @@ class Rewards(enum.IntEnum):
     This class defines the amount of reward the agent can receive
     depending on the type of location.
     """
-    FREE = -1
+    FREE = 0
     WALL = -5
+    EXIT_ROAD_SECTION = 50
     CAR = -100
     SAFE = 100
 
@@ -79,6 +80,7 @@ class EnvironmentUtils(enum.IntEnum):
     CAR = 3
     ROAD = 4
     SAFE = 5
+    EXIT_ROAD = 6
 
 
 class Environment:
@@ -96,7 +98,7 @@ class Environment:
     # The second element represents how wide the road section is. The harder the wider.
     ROADS_EASY = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
     ROADS_MEDIUM = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
-    ROADS_HARD = {'prob_road': [0.5, 0.5], 'width': 3, 'traffic': [0.8, 0.2]}
+    ROADS_HARD = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.8, 0.2]}
     ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 4, 'traffic': [0.8, 0.2]}
 
     # Defines the possible actions
@@ -151,6 +153,12 @@ class Environment:
                     reward_matrix[i][j] = Rewards.SAFE
                 elif self.board[i][j] == EnvironmentUtils.FREE_LOCATION:
                     reward_matrix[i][j] = Rewards.FREE
+                elif self.board[i][j] == EnvironmentUtils.EXIT_ROAD:
+                    reward_matrix[i][j] = Rewards.EXIT_ROAD_SECTION
+                elif self.board[i][j] == EnvironmentUtils.AGENT:
+                    reward_matrix[i][j] = Rewards.FREE
+                elif self.board[i][j] == EnvironmentUtils.ROAD:
+                    reward_matrix[i][j] = Rewards.FREE
         return reward_matrix
 
     def generate_cars(self):
@@ -167,6 +175,7 @@ class Environment:
                     car = Car((spawn_row, column))
                     cars.append(car)
                     self.board[spawn_row][column] = EnvironmentUtils.CAR
+        cars.reverse()
         return cars
 
     def get_traffic_probability(self):
@@ -239,17 +248,22 @@ class Environment:
         prob_generate_road = difficulty_settings['prob_road']
         road_width = difficulty_settings['width']
         # the start index at which the road can be built.
+        # build the road section starting from the bottom till the top of the board.
         # it starts at dimension-3 because the dim-1 row is reserved for the wall ('X'),
         # the dimension-2 row is reserved for the spawning of the frog.
         board_index = self.dimension - 3
-        while board_index > 2:
+        while board_index > 3:
             if board_index % 2 == 0 and self.board[board_index + 1, 1] != EnvironmentUtils.ROAD:
                 prob_index = np.argmax(np.random.multinomial(1, prob_generate_road))
                 if prob_index == 0:  # generate road section
-                    for _ in range(road_width):
+                    for n_road_lane in range(road_width):
                         self.board[board_index, 1:-1] = EnvironmentUtils.ROAD
+                        if n_road_lane == road_width-1:
+                            board_index -= 1
+                            self.board[board_index, 1:-1] = EnvironmentUtils.EXIT_ROAD
                         board_index -= 1
-            board_index -= 1
+            else:
+                board_index -= 1
 
     def generate_envir_resource(self):
         """
@@ -272,7 +286,9 @@ class Environment:
                           2: ('A', Colors.AGENT_BLUE),
                           3: ('C', Colors.CAR_RED),
                           4: ('R', Colors.ENDC),
-                          5: ('S', Colors.SAFE_GREEN)}
+                          5: ('S', Colors.SAFE_GREEN),
+                          6: ('E', Colors.SAFE_GREEN)
+                          }
 
         print('Difficulty: {}'.format(self.difficulty.name))
         for row in range(self.dimension):
@@ -299,7 +315,7 @@ class Environment:
 
     def is_road_section(self, prev_x, prev_y):
         """
-        This function checks if the previous location the agent moved from is a part of a road section.
+        This function checks if the previous location the agent moved from is part of a road section.
         :return: True if the previous location is part of a road section. Otherwise, False
         """
         if self.board[prev_x][prev_y - 1] == EnvironmentUtils.ROAD or \
@@ -317,7 +333,7 @@ class Environment:
         :return reward: the immediate reward of the step.
         """
         action = Environment.idx_to_action[idx_action]
-        self.cars.reverse()
+        # update cars location
         for car in self.cars:
             prev_x, prev_y = car.current_location
             new_x, new_y = car.drive()
@@ -326,6 +342,12 @@ class Environment:
                 self.board[resp_x, resp_y] = EnvironmentUtils.CAR
                 self.reward_matrix[prev_x][prev_y] = Rewards.FREE
                 self.reward_matrix[resp_x][resp_y] = Rewards.CAR
+            elif self.board[new_x][new_y] == EnvironmentUtils.AGENT:
+                # is gameover
+                self.is_gameover = True
+                self.board[new_x][new_y] = EnvironmentUtils.CAR
+                self.reward_matrix[prev_x][prev_y] = Rewards.FREE
+                self.reward_matrix[new_x][new_y] = Rewards.CAR
             else:
                 self.board[new_x][new_y] = EnvironmentUtils.CAR
                 self.reward_matrix[prev_x][prev_y] = Rewards.FREE
@@ -335,31 +357,37 @@ class Environment:
             # check if there's a car behind the current one.
             # If that's the case, don't update the reward matrix in the previous location
 
+        # check if a car crossed over the agent.
+        if self.is_gameover:
+            return self.reward
+        # store previous agent's location
         prev_x, prev_y = self.agent.current_location
+        # get the new location
         new_x, new_y = self.agent.jump(action)
         # update the reward based on the reward matrix values
+        self.reward += -1
         self.reward += self.reward_matrix[new_x][new_y]
         # update the agent location within the board
         if self.board[new_x][new_y] == EnvironmentUtils.FREE_LOCATION:
-            # make the previous location a FREE_LOCATION
-            self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
+            # check if the previous location is an 'exit road' section
+            if self.board[prev_x][prev_y-1] == EnvironmentUtils.EXIT_ROAD or self.board[prev_x][prev_y+1] ==\
+                    EnvironmentUtils.EXIT_ROAD:
+                self.board[prev_x][prev_y] = EnvironmentUtils.EXIT_ROAD
+            else:
+                self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
             # update the new location of the agent in the board
             self.board[new_x][new_y] = EnvironmentUtils.AGENT
         elif self.board[new_x][new_y] == EnvironmentUtils.CAR:
             # update only the previous location.
             # The agent is dead so there's no more 'A' in the board. End of the episode.
-            if self.is_road_section(prev_x, prev_y):
-                self.board[prev_x][prev_y] = EnvironmentUtils.ROAD
-            else:
-                self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
             self.is_gameover = True
+            return self.reward
         elif self.board[new_x][new_y] == EnvironmentUtils.WALL:
             # restore the previous value
             self.agent.current_location = prev_x, prev_y
         elif self.board[prev_x][prev_y] == EnvironmentUtils.SAFE:
-            # update only the previous location
-            self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
             self.is_gameover = True
+            return self.reward
         elif self.board[new_x][new_y] == EnvironmentUtils.ROAD:
             # update the previous location
             if self.is_road_section(prev_x, prev_y):
@@ -367,5 +395,12 @@ class Environment:
             else:
                 self.board[prev_x][prev_y] = EnvironmentUtils.FREE_LOCATION
             self.board[new_x][new_y] = EnvironmentUtils.AGENT
-
+        elif self.board[new_x][new_y] == EnvironmentUtils.EXIT_ROAD:
+            # the previous location must be the road.
+            self.board[prev_x][prev_y] = EnvironmentUtils.ROAD
+            # remove the whole line of reward otherwise the agent will
+            # try to move horizontally collecting all the reward (+25) after the road section
+            self.board[new_x][1:-1] = EnvironmentUtils.FREE_LOCATION
+            self.reward_matrix[new_x][1:-1] = Rewards.FREE
+            self.board[new_x][new_y] = EnvironmentUtils.AGENT
         return self.reward
