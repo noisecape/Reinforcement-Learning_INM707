@@ -2,6 +2,20 @@ import enum
 from collections import namedtuple
 import numpy as np
 
+
+class Experiment:
+
+    def __init__(self, episodes, dimension, difficulty, epsilon, gamma, lr):
+        self.episodes = episodes
+        self.dimension = dimension
+        self.q_values = np.zeros((dimension, dimension, 3))
+        self.history = []
+        self.epsilon = epsilon
+        self.gamma = gamma
+        self.lr = lr
+        self.difficulty = difficulty
+
+
 class Car:
 
     def __init__(self, start_location):
@@ -47,7 +61,7 @@ class Rewards(enum.IntEnum):
     """
     FREE = -1
     WALL = -5
-    EXIT_ROAD_SECTION = 50
+    EXIT_ROAD_SECTION = 75
     CAR = -100
     SAFE = 100
 
@@ -96,10 +110,11 @@ class Environment:
     # At index '0' there is the probability of generating a road section. At index 1 there is the
     # probability of not creating it.
     # The second element represents how wide the road section is. The harder the wider.
-    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.95, 0.05]}
-    ROADS_MEDIUM = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.95, 0.05]}
-    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.92, 0.08]}
-    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 3, 'traffic': [0.92, 0.08]}
+
+    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.95, 0.05]}
+    ROADS_MEDIUM = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.95, 0.05]}
+    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.92, 0.08]}
+    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 1, 'traffic': [0.92, 0.08]}
 
     # Defines the possible actions
     Action = namedtuple('Action', ['id', 'name', 'idx_i', 'idx_j'])
@@ -110,7 +125,7 @@ class Environment:
     for action in [up, left, right]:
         idx_to_action[action.id] = action
 
-    def __init__(self, lr, gamma, dimension=20, difficulty=GameDifficulty.EASY):
+    def __init__(self, dimension=20, difficulty=GameDifficulty.EASY):
         """
         Inits the environment of the board.
         :param dimension : The dimension of the board. It should be a square board of (N,N). Default = 20
@@ -119,8 +134,6 @@ class Environment:
         """
         self.dimension = dimension
         self.difficulty = difficulty
-        self.lr = lr
-        self.gamma = gamma
         self.is_gameover = False
         # generate board with walls
         self.board = self.init_board()
@@ -218,8 +231,8 @@ class Environment:
         return board
 
     def generate_safe_section(self):
-        random_column = np.random.randint(1, self.dimension-1)
-        self.board[1][random_column] = EnvironmentUtils.SAFE
+        # random_column = np.random.randint(1, self.dimension-1)
+        self.board[1][1:-1] = EnvironmentUtils.SAFE
 
     def generate_road_sections(self):
         """
