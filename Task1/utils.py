@@ -45,7 +45,7 @@ class Rewards(enum.IntEnum):
     This class defines the amount of reward the agent can receive
     depending on the type of location.
     """
-    FREE = 0
+    FREE = -1
     WALL = -5
     EXIT_ROAD_SECTION = 50
     CAR = -100
@@ -96,10 +96,10 @@ class Environment:
     # At index '0' there is the probability of generating a road section. At index 1 there is the
     # probability of not creating it.
     # The second element represents how wide the road section is. The harder the wider.
-    ROADS_EASY = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
-    ROADS_MEDIUM = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
-    ROADS_HARD = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.8, 0.2]}
-    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 4, 'traffic': [0.8, 0.2]}
+    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.95, 0.05]}
+    ROADS_MEDIUM = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.95, 0.05]}
+    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.92, 0.08]}
+    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 3, 'traffic': [0.92, 0.08]}
 
     # Defines the possible actions
     Action = namedtuple('Action', ['id', 'name', 'idx_i', 'idx_j'])
@@ -119,7 +119,6 @@ class Environment:
         """
         self.dimension = dimension
         self.difficulty = difficulty
-        self.reward = 0
         self.lr = lr
         self.gamma = gamma
         self.is_gameover = False
@@ -138,8 +137,7 @@ class Environment:
         # mapped by using the coordinates (row, column) in the board.
         self.q_values = np.zeros((self.dimension, self.dimension, 3))  # the agent cannot move backward
         self.reward_matrix = self.init_reward_matrix()
-
-        self.display_board()
+        self.final_reward = 0
 
     def init_reward_matrix(self):
         reward_matrix = np.ones((self.dimension, self.dimension)) * -1
@@ -220,7 +218,8 @@ class Environment:
         return board
 
     def generate_safe_section(self):
-        self.board[1:2, 1:-1] = EnvironmentUtils.SAFE
+        random_column = np.random.randint(1, self.dimension-1)
+        self.board[1][random_column] = EnvironmentUtils.SAFE
 
     def generate_road_sections(self):
         """
@@ -244,7 +243,7 @@ class Environment:
             self.build_road_section(Environment.ROADS_EXTREME)
 
     def build_road_section(self, difficulty_settings):
-        np.random.seed(47)  # to replicate the same experiment across several epochs
+        #np.random.seed(47)  # to replicate the same experiment across several epochs
         prob_generate_road = difficulty_settings['prob_road']
         road_width = difficulty_settings['width']
         # the start index at which the road can be built.
@@ -312,6 +311,7 @@ class Environment:
         # defines the variables for the Q-Learning algorithm. The each state in this case will be
         # mapped by using the coordinates (row, column) in the board.
         self.reward_matrix = self.init_reward_matrix()
+        self.final_reward = 0
 
     def is_road_section(self, prev_x, prev_y):
         """
@@ -333,6 +333,7 @@ class Environment:
         :return reward: the immediate reward of the step.
         """
         action = Environment.idx_to_action[idx_action]
+        reward = 0
         # update cars location
         for car in self.cars:
             prev_x, prev_y = car.current_location
@@ -348,6 +349,8 @@ class Environment:
                 self.board[new_x][new_y] = EnvironmentUtils.CAR
                 self.reward_matrix[prev_x][prev_y] = Rewards.FREE
                 self.reward_matrix[new_x][new_y] = Rewards.CAR
+                reward += self.reward_matrix[new_x][new_y]
+                break
             else:
                 self.board[new_x][new_y] = EnvironmentUtils.CAR
                 self.reward_matrix[prev_x][prev_y] = Rewards.FREE
@@ -356,17 +359,16 @@ class Environment:
             # now that the car took one step, update the reward matrix
             # check if there's a car behind the current one.
             # If that's the case, don't update the reward matrix in the previous location
-
         # check if a car crossed over the agent.
         if self.is_gameover:
-            return self.reward
+            self.final_reward += reward
+            return reward
         # store previous agent's location
         prev_x, prev_y = self.agent.current_location
         # get the new location
         new_x, new_y = self.agent.jump(action)
-        # update the reward based on the reward matrix values
-        self.reward += -1
-        self.reward += self.reward_matrix[new_x][new_y]
+        # update reward for taking the action
+        reward += self.reward_matrix[new_x][new_y]
         # update the agent location within the board
         if self.board[new_x][new_y] == EnvironmentUtils.FREE_LOCATION:
             # check if the previous location is an 'exit road' section
@@ -381,13 +383,14 @@ class Environment:
             # update only the previous location.
             # The agent is dead so there's no more 'A' in the board. End of the episode.
             self.is_gameover = True
-            return self.reward
+            self.final_reward += reward
+            return reward
         elif self.board[new_x][new_y] == EnvironmentUtils.WALL:
             # restore the previous value
             self.agent.current_location = prev_x, prev_y
-        elif self.board[prev_x][prev_y] == EnvironmentUtils.SAFE:
+        elif self.board[new_x][new_y] == EnvironmentUtils.SAFE:
             self.is_gameover = True
-            return self.reward
+            return reward
         elif self.board[new_x][new_y] == EnvironmentUtils.ROAD:
             # update the previous location
             if self.is_road_section(prev_x, prev_y):
@@ -403,4 +406,13 @@ class Environment:
             self.board[new_x][1:-1] = EnvironmentUtils.FREE_LOCATION
             self.reward_matrix[new_x][1:-1] = Rewards.FREE
             self.board[new_x][new_y] = EnvironmentUtils.AGENT
-        return self.reward
+
+        self.final_reward += reward
+        # print('Previous agent location: {}, {}'.format(prev_x, prev_y))
+        # print('New Agent location: {}, {}'.format(self.agent.current_location[0], self.agent.current_location[1]))
+        # print('Current reward: {}'.format(reward))
+        # print('Cumulative epoch reward: {}'.format(self.final_reward))
+        # self.display_board()
+        # print(self.reward_matrix)
+
+        return reward
