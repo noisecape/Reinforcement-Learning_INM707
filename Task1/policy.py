@@ -15,8 +15,8 @@ class E_Greedy(Policy):
         self.epsilon = epsilon
 
     def take_action(self, current_location, q_values):
-        if np.random.random() < self.epsilon:  # Act greedly
+        if np.random.random() < self.epsilon:  # explore
+            return np.random.randint(0, 3)
+        else:  # act greedly
             idx_action = np.argmax(q_values[current_location[0], current_location[1]])
             return idx_action
-        else:
-            return np.random.randint(0, 3)

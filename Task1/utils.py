@@ -3,19 +3,6 @@ from collections import namedtuple
 import numpy as np
 
 
-class Experiment:
-
-    def __init__(self, episodes, dimension, difficulty, epsilon, gamma, lr):
-        self.episodes = episodes
-        self.dimension = dimension
-        self.q_values = np.zeros((dimension, dimension, 3))
-        self.history = []
-        self.epsilon = epsilon
-        self.gamma = gamma
-        self.lr = lr
-        self.difficulty = difficulty
-
-
 class Car:
 
     def __init__(self, start_location):
@@ -61,7 +48,7 @@ class Rewards(enum.IntEnum):
     """
     FREE = -1
     WALL = -5
-    EXIT_ROAD_SECTION = 75
+    EXIT_ROAD_SECTION = 25
     CAR = -100
     SAFE = 100
 
@@ -97,6 +84,23 @@ class EnvironmentUtils(enum.IntEnum):
     EXIT_ROAD = 6
 
 
+class Experiment:
+
+    def __init__(self,
+                 episodes=10,
+                 dimension=10,
+                 difficulty=GameDifficulty.EASY,
+                 epsilon=.1,
+                 gamma=.9,
+                 lr=.01):
+
+        self.episodes = episodes
+        self.dimension = dimension
+        self.epsilon = epsilon
+        self.gamma = gamma
+        self.lr = lr
+        self.difficulty = difficulty
+
 class Environment:
     """
     This class represents the environment of the game.
@@ -113,8 +117,8 @@ class Environment:
 
     ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.95, 0.05]}
     ROADS_MEDIUM = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.95, 0.05]}
-    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.92, 0.08]}
-    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 1, 'traffic': [0.92, 0.08]}
+    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.92, 0.08]}
+    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
 
     # Defines the possible actions
     Action = namedtuple('Action', ['id', 'name', 'idx_i', 'idx_j'])
