@@ -117,7 +117,7 @@ class CriticModel(nn.Module):
 class PPOAgent:
 
     def __init__(self, batch_size, obs_space, act_space, fc_size,
-                 lr=10e-4, n_epoch=10, gamma=0.99, lbda=0.95, T=30, eps=0.2, c_1=0.5):
+                 lr=10e-4, n_epoch=100, gamma=0.99, lbda=0.95, T=30, eps=0.2, c_1=0.5):
         # store hyperparameters
         self.lr = lr
         self.n_epoch = n_epoch
@@ -155,7 +155,7 @@ class PPOAgent:
     def get_best_action(self, act_prob, actions_idx):
         result = []
         for idx, probs in enumerate(act_prob):
-            new_prob = probs[actions_idx[idx]].detach().item()
+            new_prob = probs[actions_idx[idx]].item()
             result.append(new_prob)
         result = torch.tensor(np.array(result))
         return result
