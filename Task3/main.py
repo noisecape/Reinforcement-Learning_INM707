@@ -1,17 +1,19 @@
 import gym
 from Task3.model import PPOAgent
+import os
 
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # define some hyperparameters from the paper of PPO
-T = 30
+T = 20
 games = 1000
 scores = []
 avg_score = 0
-batch_size = 10
+batch_size = 5
 fc_size = 64
 
 # create the environment from gym
 env = gym.make('MountainCar-v0')
-agent = PPOAgent(batch_size, env.observation_space.shape[-1], env.action_space.n, fc_size)
+agent = PPOAgent(batch_size, env.observation_space.shape[-1], env.action_space.n, fc_size, T=T)
 score_history = []
 
 
