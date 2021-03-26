@@ -44,10 +44,10 @@ def ppo(n_epochs, gamma, clip_ratio, labda, c_1, T):
     https://arxiv.org/pdf/1707.06347.pdf
     :return:
     """
-    states, actions, rewards, values, is_done, log_probs = memory.convert_np_arrays()
     for e in range(n_epochs):
         # randomly generate batches
         batches = memory.create_batch(T)
+        states, actions, rewards, values, is_done, log_probs = memory.convert_np_arrays()
         advantages = []
         for t in range(T):
             delta_t = 0
@@ -57,8 +57,7 @@ def ppo(n_epochs, gamma, clip_ratio, labda, c_1, T):
             gae = 1
             # this loop computes all the delta_t
             for i in range(t, T-1):
-                delta_t += (rewards[i] + \
-                            gamma * values[t + 1] * (1-int(is_done[t])) - values[t]) * gae
+                delta_t += gae * (rewards[i] + gamma * values[t + 1] * (1-int(is_done[t])) - values[t])
                 # update GAE value
                 gae *= gamma * labda
             advantages.append(delta_t)
@@ -75,7 +74,7 @@ def ppo(n_epochs, gamma, clip_ratio, labda, c_1, T):
             act_prob = actor(batch_states)
             act_prob = Categorical(act_prob)
             # feedforward pass to the critic net to get the values per batch
-            values_ = critic(batch_states)
+            values_ = critic(batch_states).squeeze()
             # compute new prob log.
             new_prob = act_prob.log_prob(batch_actions)
             # in order to get the correct ratio the exp() operator must be applied
@@ -86,13 +85,12 @@ def ppo(n_epochs, gamma, clip_ratio, labda, c_1, T):
             # represents the second term in the L_CLIP equation
             clip = clip * advantages[batch]
             # multiply ratio and advantages to get the 'weighted probs'
-            weighted_prob = ratio * advantages[batch]
+            weighted_prob = advantages[batch] * ratio
             # compute the L_CLIP function. Because the
             # gradient ascent is applied, we have to change sign
             # take the mean because it's an expectation. This is
             # the actor loss
-            l_clip = -torch.min(weighted_prob, clip)
-            l_clip = torch.mean(l_clip)
+            l_clip = -torch.min(weighted_prob, clip).mean()
             # compute returns: A_t = returns - values --> returns = A_t + values
             returns = advantages[batch] + batch_vals
             # compute the L_VF, which is the critic loss
@@ -113,17 +111,16 @@ def ppo(n_epochs, gamma, clip_ratio, labda, c_1, T):
 
 
 # define some hyperparameters from the paper of PPO
-n_epochs = 10
+n_epochs = 4
 gamma = 0.99
 clip_ratio = 0.2
 ldba = 0.97
 c_1 = 0.5
-games = 300
+games = 10000
 batch_size = 5
-fc_size = 256
+fc_size = 64
 T = 20
-steps = 0
-
+step = 0
 
 
 # create the environment from gym
@@ -134,7 +131,6 @@ actor = ActorModel(observation_space, action_space, fc_size)
 critic = CriticModel(observation_space, fc_size)
 memory = init_memory(batch_size)
 score_history = []
-
 ## main loop ##
 
 for g in range(games):
@@ -144,33 +140,36 @@ for g in range(games):
     running_score = 0
     running_history = []
     score_history = []
-    done = False
     train_counter = 0
+    done = False
     # iterate through the game util it's finished
     while not done:
         # convert state to a tensor.
         # Add a dimension to support the batch for later steps
-        # env.render()
+        env.render()
         state = torch.tensor(state, dtype=torch.float32)
         # return the actions prod. distribution
         act_distr = actor(state).squeeze(0)
+        act_distr = Categorical(act_distr)
+        # action = np.argmax(np.random.multinomial(1, np.array(act_distr.data)))
+        action = act_distr.sample()
         # use the distribribution to sample from a multinomial
         # distribution. This will ensure that the agent always acts
         # in a stochastic manner according to the latest version
         # of the stochastic policy
-        action = np.argmax(np.random.multinomial(1, np.array(act_distr.data)))
         # take a step in the environment
-        new_state, reward, done, info = env.step(action)
-        steps += 1
+        new_state, reward, done, info = env.step(action.item())
+        step += 1
         # update running score
         running_score += reward
         # compute log_probs of the prob distribution
-        log_prob = np.log(act_distr.data[action]).item()
+        # log_prob = np.log(act_distr.data[action]).item()
+        log_prob = torch.squeeze(act_distr.log_prob(action)).item()
         # compute the value for this game iteration
         value = critic(state).data.item()
         # store the info in the memory
         memory.push(new_state, action, reward, value, done, log_prob)
-        if steps % T == 0:
+        if step % T == 0:
             ppo(n_epochs, gamma, clip_ratio, ldba, c_1, T)
             train_counter += 1
         # update current state to new state

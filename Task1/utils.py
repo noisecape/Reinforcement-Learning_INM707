@@ -47,10 +47,10 @@ class Rewards(enum.IntEnum):
     depending on the type of location.
     """
     FREE = -1
-    WALL = -5
+    WALL = -2
     EXIT_ROAD_SECTION = 25
-    CAR = -100
-    SAFE = 100
+    CAR = -7
+    SAFE = 150
 
 
 class GameDifficulty(enum.Enum):
@@ -87,7 +87,7 @@ class EnvironmentUtils(enum.IntEnum):
 class Experiment:
 
     def __init__(self,
-                 episodes=10,
+                 episodes=10000,
                  dimension=10,
                  difficulty=GameDifficulty.EASY,
                  epsilon=.1,
@@ -260,7 +260,7 @@ class Environment:
             self.build_road_section(Environment.ROADS_EXTREME)
 
     def build_road_section(self, difficulty_settings):
-        #np.random.seed(47)  # to replicate the same experiment across several epochs
+        # np.random.seed(47)  # to replicate the same experiment across several epochs
         prob_generate_road = difficulty_settings['prob_road']
         road_width = difficulty_settings['width']
         # the start index at which the road can be built.
@@ -407,6 +407,7 @@ class Environment:
             self.agent.current_location = prev_x, prev_y
         elif self.board[new_x][new_y] == EnvironmentUtils.SAFE:
             self.is_gameover = True
+            self.final_reward += reward
             return reward
         elif self.board[new_x][new_y] == EnvironmentUtils.ROAD:
             # update the previous location
@@ -425,11 +426,5 @@ class Environment:
             self.board[new_x][new_y] = EnvironmentUtils.AGENT
 
         self.final_reward += reward
-        # print('Previous agent location: {}, {}'.format(prev_x, prev_y))
-        # print('New Agent location: {}, {}'.format(self.agent.current_location[0], self.agent.current_location[1]))
-        # print('Current reward: {}'.format(reward))
-        # print('Cumulative epoch reward: {}'.format(self.final_reward))
-        # self.display_board()
-        # print(self.reward_matrix)
 
         return reward

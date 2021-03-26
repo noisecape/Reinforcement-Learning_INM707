@@ -72,14 +72,14 @@ class ActorModel(nn.Module):
         # implement the neural network that represents the policy.
         # following the paper's implementation: https://arxiv.org/pdf/1707.06347.pdf
         self.model = nn.Sequential(nn.Linear(obs_size, fc_size),
-                                   nn.Tanh(),
+                                   nn.ReLU(),
                                    nn.Linear(fc_size, fc_size),
-                                   nn.Tanh(),
+                                   nn.ReLU(),
                                    nn.Linear(fc_size, action_size),
                                    nn.Softmax(dim=-1)
                                    ).to(device)
-        optim_params = {'lr': 0.0003, 'weight_decay': 10e-3}
-        self.optimizer = opt.Adam(self.model.parameters(), **optim_params)
+        optim_params = {'lr': 0.003}
+        self.optimizer = opt.Adam(self.parameters(), **optim_params)
 
     def forward(self, x):
         act_prob = self.model(x)
@@ -92,16 +92,15 @@ class CriticModel(nn.Module):
         super(CriticModel, self).__init__()
 
         self.model = nn.Sequential(nn.Linear(obs_size, fc_size),
-                                   nn.Tanh(),
+                                   nn.ReLU(),
                                    nn.Linear(fc_size, fc_size),
-                                   nn.Tanh(),
+                                   nn.ReLU(),
                                    nn.Linear(fc_size, 1)
                                    ).to(device)
 
-        optim_params = {'lr': 0.001, 'weight_decay': 10e-3}
-        self.optimizer = opt.Adam(self.model.parameters(), **optim_params)
+        optim_params = {'lr': 0.001}
+        self.optimizer = opt.Adam(self.parameters(), **optim_params)
 
     def forward(self, x):
         value = self.model(x)
-        value = value.squeeze()
         return value
