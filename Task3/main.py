@@ -1,33 +1,11 @@
 import gym
 from Task3.model import ActorModel, CriticModel, Memory
-import Task3.model as tsk3
 import torch
 import os
 import numpy as np
+from torch.distributions.categorical import Categorical
 
-
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
-
-# define some hyperparameters from the paper of PPO
-T = 100
-n_epochs = 20
-gamma =0.99
-eps = 0.2
-ldba = 0.95
-c_1 = 0.5
-games = 1000
-avg_score = 0
-batch_size = 64
-fc_size = 64
-
-# create the environment from gym
-env = gym.make('MountainCar-v0')
-observation_space = env.observation_space.shape[-1]
-action_space = env.action_space.n
-actor = ActorModel(observation_space, action_space, fc_size)
-critic = CriticModel(observation_space, fc_size)
-memory = Memory(batch_size)
-score_history = []
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 device = torch.device('cpu')
 if torch.cuda.is_available():
@@ -36,34 +14,29 @@ print(device)
 
 ### USEFUL METHODS
 
-def get_log_prob(distribution):
-    return np.log(distribution.detach().numpy())
+
+def init_memory(batch_size):
+    states = []
+    actions = []
+    rewards = []
+    values = []
+    is_done = []
+    log_probs = []
+    memory = Memory(batch_size, states, actions, rewards, values, is_done, log_probs)
+    return memory
 
 
-def choose_action(state):
-    # convert ndarray to a tensor
-    state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-    # compute the action
-    act_prob = actor(state).squeeze(0)
-    # sample from a multinomial distribution and get the action's index
-    action = np.argmax(np.random.multinomial(1, act_prob.detach().numpy()))
-    # compute the value
-    value = critic(state).item()
-    # compute log probability
-    log_prob = get_log_prob(act_prob[action])
-
-    return action, value, log_prob
-
-
-def get_best_action(act_prob, actions_idx):
+def get_action(act_prob):
     result = []
     for idx, probs in enumerate(act_prob):
-        new_prob = probs[actions_idx[idx]].item()
-        result.append(new_prob)
+        action_idx = np.argmax(np.random.multinomial(1, np.array(probs.data)))
+        new_prob = probs[action_idx]
+        result.append(new_prob.item())
     result = torch.tensor(np.array(result))
     return result
 
-def update_policy(n_epochs, T, gamma, lbda, eps, c_1):
+
+def ppo(n_epochs, gamma, clip_ratio, labda, c_1, T):
     """
     This function perform an update of the policy
     based on the trajectory stored in memory. The algorithm
@@ -71,11 +44,10 @@ def update_policy(n_epochs, T, gamma, lbda, eps, c_1):
     https://arxiv.org/pdf/1707.06347.pdf
     :return:
     """
-    states, actions, rewards, values, log_probs = memory.convert_np_arrays()
-    for _ in range(n_epochs):
+    states, actions, rewards, values, is_done, log_probs = memory.convert_np_arrays()
+    for e in range(n_epochs):
         # randomly generate batches
         batches = memory.create_batch(T)
-
         advantages = []
         for t in range(T):
             delta_t = 0
@@ -86,9 +58,9 @@ def update_policy(n_epochs, T, gamma, lbda, eps, c_1):
             # this loop computes all the delta_t
             for i in range(t, T-1):
                 delta_t += (rewards[i] + \
-                            (gamma * values[t + 1]) - values[t]) * gae
+                            gamma * values[t + 1] * (1-int(is_done[t])) - values[t]) * gae
                 # update GAE value
-                gae *= gamma * lbda
+                gae *= gamma * labda
             advantages.append(delta_t)
         advantages = torch.tensor(np.array(advantages))
 
@@ -101,28 +73,31 @@ def update_policy(n_epochs, T, gamma, lbda, eps, c_1):
             # feedforward pass to the actor net to get the prob distr. of
             # each action per batch
             act_prob = actor(batch_states)
-            act_prob = get_best_action(act_prob, batch_actions)
+            act_prob = Categorical(act_prob)
             # feedforward pass to the critic net to get the values per batch
             values_ = critic(batch_states)
             # compute new prob log.
-            act_prob = torch.tensor(get_log_prob(act_prob))
+            new_prob = act_prob.log_prob(batch_actions)
             # in order to get the correct ratio the exp() operator must be applied
             # because of the log value.
-            ratio = act_prob.exp() / batch_old_probs.exp()
+            ratio = new_prob.exp() / batch_old_probs.exp()
             # represents the first term in the L_CLIP equation
-            ratio *= advantages[batch]
-            clip = torch.clamp(ratio, 1-eps, 1+eps)
+            clip = torch.clamp(ratio, 1 - clip_ratio, 1 + clip_ratio)
             # represents the second term in the L_CLIP equation
             clip = clip * advantages[batch]
+            # multiply ratio and advantages to get the 'weighted probs'
+            weighted_prob = ratio * advantages[batch]
             # compute the L_CLIP function. Because the
             # gradient ascent is applied, we have to change sign
             # take the mean because it's an expectation. This is
             # the actor loss
-            l_clip = -torch.mean(torch.min(ratio, clip))
+            l_clip = -torch.min(weighted_prob, clip)
+            l_clip = torch.mean(l_clip)
             # compute returns: A_t = returns - values --> returns = A_t + values
             returns = advantages[batch] + batch_vals
             # compute the L_VF, which is the critic loss
-            l_vf = torch.mean((returns - values_)**2)
+            l_vf = (returns - values_)**2
+            l_vf = torch.mean(l_vf)
             # combine the two losses to get the final loss L_CLIP_VF
             total_loss = l_clip + (c_1 * l_vf)
 
@@ -132,35 +107,105 @@ def update_policy(n_epochs, T, gamma, lbda, eps, c_1):
             total_loss.backward()
             actor.optimizer.step()
             critic.optimizer.step()
-
     # at the end of the epoch clear the trajectory
     # in the memory
     memory.empty_memory()
 
 
-for i in range(games):
-    # return the initial state of the environment --> [car_position, velocity]
+# define some hyperparameters from the paper of PPO
+n_epochs = 10
+gamma = 0.99
+clip_ratio = 0.2
+ldba = 0.97
+c_1 = 0.5
+games = 300
+batch_size = 5
+fc_size = 256
+T = 20
+steps = 0
+
+
+
+# create the environment from gym
+env = gym.make('CartPole-v1')
+observation_space = env.observation_space.shape[-1]
+action_space = env.action_space.n
+actor = ActorModel(observation_space, action_space, fc_size)
+critic = CriticModel(observation_space, fc_size)
+memory = init_memory(batch_size)
+score_history = []
+
+## main loop ##
+
+for g in range(games):
+    # get initial state
     state = env.reset()
+    # setup useful variables
+    running_score = 0
+    running_history = []
+    score_history = []
     done = False
-    running_reward = 0
-    steps = 0
+    train_counter = 0
+    # iterate through the game util it's finished
     while not done:
-        # sample an action from the ActorModel
-        # returns the index of the taken action
-        action, value, log_prob = choose_action(state)
-        # take a step into the world
+        # convert state to a tensor.
+        # Add a dimension to support the batch for later steps
+        # env.render()
+        state = torch.tensor(state, dtype=torch.float32)
+        # return the actions prod. distribution
+        act_distr = actor(state).squeeze(0)
+        # use the distribribution to sample from a multinomial
+        # distribution. This will ensure that the agent always acts
+        # in a stochastic manner according to the latest version
+        # of the stochastic policy
+        action = np.argmax(np.random.multinomial(1, np.array(act_distr.data)))
+        # take a step in the environment
         new_state, reward, done, info = env.step(action)
-        # accumulare score
-        running_reward += reward
-        # increment step counter
         steps += 1
-        # store new information into the memory
-        memory.push(new_state, reward, action, value, log_prob)
-        # once after T steps, update the network's parameter
-        env.render()
+        # update running score
+        running_score += reward
+        # compute log_probs of the prob distribution
+        log_prob = np.log(act_distr.data[action]).item()
+        # compute the value for this game iteration
+        value = critic(state).data.item()
+        # store the info in the memory
+        memory.push(new_state, action, reward, value, done, log_prob)
         if steps % T == 0:
-            update_policy(n_epochs, T, gamma, ldba, eps, c_1)
+            ppo(n_epochs, gamma, clip_ratio, ldba, c_1, T)
+            train_counter += 1
+        # update current state to new state
         state = new_state
-    score_history.append(running_reward)
-    print('Episode {}, Score: {}'.format(i+1, np.mean(score_history[-100:])))
-env.close()
+        running_history.append(running_score)
+
+    # game finished, train phase
+    # perform ppo algorithm
+    print('{} game completed, final score: {}, average score {}, training_phase {}'.format(g+1, running_score, np.mean(running_history), train_counter))
+
+# for i in range(games):
+#     # return the initial state of the environment --> [car_position, velocity]
+#     state = env.reset()
+#     done = False
+#     running_reward = 0
+#     running_history = []
+#     steps = 0
+#     while not done:
+#         # sample an action from the ActorModel
+#         # returns the index of the taken action
+#         env.render()
+#         action, value, log_prob = choose_action(state)
+#         # take a step into the world
+#         new_state, reward, done, info = env.step(action)
+#         # accumulare score
+#         running_reward += reward
+#         running_history.append(running_reward)
+#         # increment step counter
+#         steps += 1
+#         # store new information into the memory
+#         memory.push(new_state, reward, action, value, done, log_prob)
+#         # once after T steps, update the network's parameter
+#         if steps % T == 0:
+#             update_policy(n_epochs, T, gamma, ldba, eps, c_1)
+#         state = new_state
+#     print('Episode {}, Average Score: {}'.format(i+1, np.mean(running_history)))
+#     score_history.append(running_reward)
+# env.close()

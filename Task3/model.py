@@ -5,25 +5,20 @@ from collections import namedtuple
 import torch.optim as opt
 from torch.distributions.categorical import Categorical
 
-Trajectory = namedtuple('Trajectory', 'states, actions, rewards, values, log_probs')
+Trajectory = namedtuple('Trajectory', 'states, actions, rewards, values, is_done, log_probs')
 
 device = torch.device('cpu')
 if torch.cuda.is_available():
     device = torch.device('cuda')
 print(device)
 
+torch.autograd.set_detect_anomaly(True)
 
 class Memory:
 
-    def __init__(self, batch_size):
+    def __init__(self, batch_size, states, actions, rewards, values, is_done, log_probs):
         # init data structures to hold trajectories info
-        self.states = []
-        self.actions = []
-        self.rewards = []
-        self.values = []
-        self.log_probs = []
-        self.trajectory = Trajectory(self.states, self.actions, self.rewards, self.values, self.log_probs)
-
+        self.trajectory = Trajectory(states, actions, rewards, values, is_done, log_probs)
         self.batch_size = batch_size
 
     def create_batch(self, t_len):
@@ -52,21 +47,20 @@ class Memory:
                np.array(self.trajectory.actions, dtype=int), \
                np.array(self.trajectory.rewards), \
                np.array(self.trajectory.values), \
+               np.array(self.trajectory.is_done, dtype=int), \
                np.array(self.trajectory.log_probs)
 
-    def push(self, states, actions, rewards, values, log_probs):
+    def push(self, states, actions, rewards, values, is_done, log_probs):
         self.trajectory.states.append(states)
         self.trajectory.actions.append(actions)
         self.trajectory.rewards.append(rewards)
         self.trajectory.values.append(values)
+        self.trajectory.is_done.append(is_done)
         self.trajectory.log_probs.append(log_probs)
 
     def empty_memory(self):
-        self.states = []
-        self.actions = []
-        self.rewards = []
-        self.values = []
-        self.log_probs = []
+        new_trajectory = Trajectory([], [], [], [], [], [])
+        self.trajectory = new_trajectory
 
 
 class ActorModel(nn.Module):
@@ -84,11 +78,10 @@ class ActorModel(nn.Module):
                                    nn.Linear(fc_size, action_size),
                                    nn.Softmax(dim=-1)
                                    ).to(device)
-        optim_params = {'lr': 10e-5, 'weight_decay': 10e-3}
+        optim_params = {'lr': 0.0003, 'weight_decay': 10e-3}
         self.optimizer = opt.Adam(self.model.parameters(), **optim_params)
 
     def forward(self, x):
-        # compute probabilities for each action
         act_prob = self.model(x)
         return act_prob
 
@@ -105,13 +98,10 @@ class CriticModel(nn.Module):
                                    nn.Linear(fc_size, 1)
                                    ).to(device)
 
-        optim_params = {'lr': 10e-5, 'weight_decay': 10e-3}
+        optim_params = {'lr': 0.001, 'weight_decay': 10e-3}
         self.optimizer = opt.Adam(self.model.parameters(), **optim_params)
 
     def forward(self, x):
         value = self.model(x)
         value = value.squeeze()
         return value
-
-
-
