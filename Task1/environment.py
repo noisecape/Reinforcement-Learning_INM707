@@ -37,7 +37,7 @@ def train(episode, env, lr, gamma, policy):
 
 episodes = 1000
 experiments = [Experiment(episodes=episodes, difficulty=GameDifficulty.EASY),
-               Experiment(episodes=episodes, difficulty=GameDifficulty.HARD)]
+               Experiment(episodes=episodes, difficulty=GameDifficulty.HARD, lr=0.001, gamma=0.99)]
 exp_results = {}
 for idx, exp in enumerate(experiments):
     history_rewards = []
