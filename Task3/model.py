@@ -16,26 +16,25 @@ torch.autograd.set_detect_anomaly(True)
 
 class Memory:
 
-    def __init__(self, batch_size, states, actions, rewards, values, is_done, log_probs):
+    def __init__(self, states, actions, rewards, values, is_done, log_probs):
         # init data structures to hold trajectories info
         self.trajectory = Trajectory(states, actions, rewards, values, is_done, log_probs)
-        self.batch_size = batch_size
 
-    def create_batch(self, t_len):
-        """
-        This function creates a batch of dimension 'batch_size' that will be
-        used during the training of the agent. The batch is created by
-        shuffling a list of indices and extracting 'len_trajectory/batch_size' batches.
-        :param batch_dim: the dimension of each batch
-        :param t_len: the length of a single trajectory.
-        :return:
-        """
-        indices = np.arange(0, t_len)
-        np.random.shuffle(indices)
-        index_start = np.arange(0, t_len, self.batch_size)
-        # creates the batches
-        batches = [indices[i:i + self.batch_size] for i in index_start]
-        return batches
+    # def create_batch(self, t_len):
+    #     """
+    #     This function creates a batch of dimension 'batch_size' that will be
+    #     used during the training of the agent. The batch is created by
+    #     shuffling a list of indices and extracting 'len_trajectory/batch_size' batches.
+    #     :param batch_dim: the dimension of each batch
+    #     :param t_len: the length of a single trajectory.
+    #     :return:
+    #     """
+    #     indices = np.arange(0, t_len)
+    #     np.random.shuffle(indices)
+    #     index_start = np.arange(0, t_len, self.batch_size)
+    #     # creates the batches
+    #     batches = [indices[i:i + self.batch_size] for i in index_start]
+    #     return batches
 
     def convert_np_arrays(self):
         """
@@ -78,7 +77,7 @@ class ActorModel(nn.Module):
                                    nn.Linear(fc_size, action_size),
                                    nn.Softmax(dim=-1)
                                    ).to(device)
-        optim_params = {'lr': 0.003}
+        optim_params = {'lr': 0.0001, 'weight_decay': 0.001}
         self.optimizer = opt.Adam(self.parameters(), **optim_params)
 
     def forward(self, x):
@@ -98,7 +97,7 @@ class CriticModel(nn.Module):
                                    nn.Linear(fc_size, 1)
                                    ).to(device)
 
-        optim_params = {'lr': 0.001}
+        optim_params = {'lr': 0.0001, 'weight_decay': 0.001}
         self.optimizer = opt.Adam(self.parameters(), **optim_params)
 
     def forward(self, x):

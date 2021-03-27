@@ -15,14 +15,14 @@ print(device)
 ### USEFUL METHODS
 
 
-def init_memory(batch_size):
+def init_memory():
     states = []
     actions = []
     rewards = []
     values = []
     is_done = []
     log_probs = []
-    memory = Memory(batch_size, states, actions, rewards, values, is_done, log_probs)
+    memory = Memory(states, actions, rewards, values, is_done, log_probs)
     return memory
 
 
@@ -44,82 +44,71 @@ def ppo(n_epochs, gamma, clip_ratio, labda, c_1, T):
     https://arxiv.org/pdf/1707.06347.pdf
     :return:
     """
+    # convert properly all the data structures
+    states, actions, rewards, values, is_done, log_probs = memory.convert_np_arrays()
+    states = torch.tensor(states, dtype=torch.float).to(device)
+    values = torch.tensor(values, dtype=torch.float).to(device)
+    log_probs = torch.tensor(log_probs, dtype=torch.float).to(device)
+    actions = torch.tensor(actions).to(device)
+
     for e in range(n_epochs):
         # randomly generate batches
-        batches = memory.create_batch(T)
-        states, actions, rewards, values, is_done, log_probs = memory.convert_np_arrays()
-        advantages = []
-        for t in range(T):
-            delta_t = 0
-            # default value for Generalized Advantage Estimation
-            # GAE is used to 'average' the return which due to
-            # stochasticity can result in high variance estimator.
-            gae = 1
-            # this loop computes all the delta_t
-            for i in range(t, T-1):
-                delta_t += gae * (rewards[i] + gamma * values[t + 1] * (1-int(is_done[t])) - values[t])
-                # update GAE value
-                gae *= gamma * labda
-            advantages.append(delta_t)
+        returns = []
+        disc_reward = 0
+        # compute discounted reward using MC method.
+        for idx, rew in enumerate(reversed(rewards)):
+            disc_reward = rewards[idx] + (gamma * disc_reward)
+            returns.insert(0, disc_reward)
+
+        returns = torch.tensor(returns)
+        advantages = returns - values
         advantages = torch.tensor(np.array(advantages))
 
-        # for each batch compute the values to update the network
-        for batch in batches:
-            batch_states = torch.tensor(states[batch], dtype=torch.float).to(device)
-            batch_vals = torch.tensor(values[batch], dtype=torch.float).to(device)
-            batch_old_probs = torch.tensor(log_probs[batch], dtype=torch.float).to(device)
-            batch_actions = torch.tensor(actions[batch]).to(device)
-            # feedforward pass to the actor net to get the prob distr. of
-            # each action per batch
-            act_prob = actor(batch_states)
-            act_prob = Categorical(act_prob)
-            # feedforward pass to the critic net to get the values per batch
-            values_ = critic(batch_states).squeeze()
-            # compute new prob log.
-            new_prob = act_prob.log_prob(batch_actions)
-            # in order to get the correct ratio the exp() operator must be applied
-            # because of the log value.
-            ratio = new_prob.exp() / batch_old_probs.exp()
-            # represents the first term in the L_CLIP equation
-            clip = torch.clamp(ratio, 1 - clip_ratio, 1 + clip_ratio)
-            # represents the second term in the L_CLIP equation
-            clip = clip * advantages[batch]
-            # multiply ratio and advantages to get the 'weighted probs'
-            weighted_prob = advantages[batch] * ratio
-            # compute the L_CLIP function. Because the
-            # gradient ascent is applied, we have to change sign
-            # take the mean because it's an expectation. This is
-            # the actor loss
-            l_clip = -torch.min(weighted_prob, clip).mean()
-            # compute returns: A_t = returns - values --> returns = A_t + values
-            returns = advantages[batch] + batch_vals
-            # compute the L_VF, which is the critic loss
-            l_vf = (returns - values_)**2
-            l_vf = torch.mean(l_vf)
-            # combine the two losses to get the final loss L_CLIP_VF
-            total_loss = l_clip + (c_1 * l_vf)
+        # feedforward pass to the actor net to get the prob distr. of
+        # each action per batch
+        act_prob = actor(states)
+        act_prob = Categorical(act_prob)
+        # feedforward pass to the critic net to get the values per batch
+        values_ = critic(states).squeeze()
+        # compute new prob log.
+        new_prob = act_prob.log_prob(actions)
+        # in order to get the correct ratio the exp() operator must be applied
+        # because of the log value.
+        ratio = torch.exp(new_prob - log_probs)
+        # represents the first term in the L_CLIP equation
+        clip = torch.clamp(ratio, 1 - clip_ratio, 1 + clip_ratio) * advantages
+        # multiply ratio and advantages to get the 'weighted probs'
+        weighted_prob = advantages * ratio
+        # compute the L_CLIP function. Because the
+        # gradient ascent is applied, we have to change sign
+        # take the mean because it's an expectation. This is
+        # the actor loss
+        l_clip = torch.mean(-torch.min(weighted_prob, clip))
+        # compute the L_VF, which is the critic loss
+        l_vf = torch.mean((returns - values_)**2)
+        # combine the two losses to get the final loss L_CLIP_VF
+        total_loss = l_clip + (c_1 * l_vf)
 
-            # perform backprop
-            actor.optimizer.zero_grad()
-            critic.optimizer.zero_grad()
-            total_loss.backward()
-            actor.optimizer.step()
-            critic.optimizer.step()
+        # perform backprop
+        actor.optimizer.zero_grad()
+        critic.optimizer.zero_grad()
+        total_loss.backward()
+        actor.optimizer.step()
+        critic.optimizer.step()
     # at the end of the epoch clear the trajectory
     # in the memory
     memory.empty_memory()
 
 
 # define some hyperparameters from the paper of PPO
-n_epochs = 4
+n_epochs = 50
 gamma = 0.99
 clip_ratio = 0.2
 ldba = 0.97
 c_1 = 0.5
 games = 10000
-batch_size = 5
-fc_size = 64
-T = 20
+fc_size = 256
+T = 10
 step = 0
 
 
@@ -129,7 +118,7 @@ observation_space = env.observation_space.shape[-1]
 action_space = env.action_space.n
 actor = ActorModel(observation_space, action_space, fc_size)
 critic = CriticModel(observation_space, fc_size)
-memory = init_memory(batch_size)
+memory = init_memory()
 score_history = []
 ## main loop ##
 
@@ -178,33 +167,7 @@ for g in range(games):
 
     # game finished, train phase
     # perform ppo algorithm
-    print('{} game completed, final score: {}, average score {}, training_phase {}'.format(g+1, running_score, np.mean(running_history), train_counter))
-
-# for i in range(games):
-#     # return the initial state of the environment --> [car_position, velocity]
-#     state = env.reset()
-#     done = False
-#     running_reward = 0
-#     running_history = []
-#     steps = 0
-#     while not done:
-#         # sample an action from the ActorModel
-#         # returns the index of the taken action
-#         env.render()
-#         action, value, log_prob = choose_action(state)
-#         # take a step into the world
-#         new_state, reward, done, info = env.step(action)
-#         # accumulare score
-#         running_reward += reward
-#         running_history.append(running_reward)
-#         # increment step counter
-#         steps += 1
-#         # store new information into the memory
-#         memory.push(new_state, reward, action, value, done, log_prob)
-#         # once after T steps, update the network's parameter
-#         if steps % T == 0:
-#             update_policy(n_epochs, T, gamma, ldba, eps, c_1)
-#         state = new_state
-#     print('Episode {}, Average Score: {}'.format(i+1, np.mean(running_history)))
-#     score_history.append(running_reward)
-# env.close()
+    print('{} game completed, final score: {}, average score {}, training_phase {}'.format(g+1,
+                                                                                           running_score,
+                                                                                           np.mean(running_history),
+                                                                                           train_counter))
