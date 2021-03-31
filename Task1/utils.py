@@ -47,10 +47,10 @@ class Rewards(enum.IntEnum):
     depending on the type of location.
     """
     FREE = -1
-    WALL = -2
-    EXIT_ROAD_SECTION = 25
-    CAR = -7
-    SAFE = 150
+    WALL = -5
+    EXIT_ROAD_SECTION = 10
+    CAR = -75
+    SAFE = 100
 
 
 class GameDifficulty(enum.Enum):
@@ -67,6 +67,7 @@ class Colors:
     AGENT_BLUE = '\033[94m'
     SAFE_GREEN = '\033[92m'
     CAR_RED = '\033[91m'
+    EXIT_ROAD = '\033[33m'
     ENDC = '\033[0m'
 
 
@@ -92,7 +93,7 @@ class Experiment:
                  difficulty=GameDifficulty.EASY,
                  epsilon=.1,
                  gamma=.9,
-                 lr=.01):
+                 lr=.2):
 
         self.episodes = episodes
         self.dimension = dimension
@@ -115,10 +116,10 @@ class Environment:
     # probability of not creating it.
     # The second element represents how wide the road section is. The harder the wider.
 
-    ROADS_EASY = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.95, 0.05]}
-    ROADS_MEDIUM = {'prob_road': [0.4, 0.6], 'width': 1, 'traffic': [0.95, 0.05]}
-    ROADS_HARD = {'prob_road': [0.4, 0.6], 'width': 2, 'traffic': [0.92, 0.08]}
-    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.85, 0.15]}
+    ROADS_EASY = {'prob_road': [0.55, 0.45], 'width': 1, 'traffic': [0.7, 0.3]}
+    ROADS_MEDIUM = {'prob_road': [0.55, 0.45], 'width': 1, 'traffic': [0.7, 0.3]}
+    ROADS_HARD = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.7, 0.3]}
+    ROADS_EXTREME = {'prob_road': [0.5, 0.5], 'width': 2, 'traffic': [0.60, 0.4]}
 
     # Defines the possible actions
     Action = namedtuple('Action', ['id', 'name', 'idx_i', 'idx_j'])
@@ -139,6 +140,7 @@ class Environment:
         self.dimension = dimension
         self.difficulty = difficulty
         self.is_gameover = False
+        self.goal_reached = False
         # generate board with walls
         self.board = self.init_board()
         # generate road sections
@@ -271,13 +273,13 @@ class Environment:
         while board_index > 3:
             if board_index % 2 == 0 and self.board[board_index + 1, 1] != EnvironmentUtils.ROAD:
                 prob_index = np.argmax(np.random.multinomial(1, prob_generate_road))
-                if prob_index == 0:  # generate road section
+                if prob_index == 1:  # generate road section
                     for n_road_lane in range(road_width):
                         self.board[board_index, 1:-1] = EnvironmentUtils.ROAD
                         if n_road_lane == road_width-1:
                             board_index -= 1
                             self.board[board_index, 1:-1] = EnvironmentUtils.EXIT_ROAD
-                        board_index -= 1
+                board_index -= 1
             else:
                 board_index -= 1
 
@@ -303,7 +305,7 @@ class Environment:
                           3: ('C', Colors.CAR_RED),
                           4: ('R', Colors.ENDC),
                           5: ('S', Colors.SAFE_GREEN),
-                          6: ('E', Colors.SAFE_GREEN)
+                          6: ('E', Colors.EXIT_ROAD)
                           }
 
         print('Difficulty: {}'.format(self.difficulty.name))
@@ -314,6 +316,7 @@ class Environment:
 
     def reset(self):
         self.is_gameover = False
+        self.goal_reached = False
         # generate board with walls
         self.board = self.init_board()
         # generate road sections
@@ -407,6 +410,7 @@ class Environment:
             self.agent.current_location = prev_x, prev_y
         elif self.board[new_x][new_y] == EnvironmentUtils.SAFE:
             self.is_gameover = True
+            self.goal_reached = True
             self.final_reward += reward
             return reward
         elif self.board[new_x][new_y] == EnvironmentUtils.ROAD:
